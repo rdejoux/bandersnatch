@@ -188,6 +188,7 @@ class BandersnatchMirror(Mirror):
         hash_index: bool = False,
         json_save: bool = False,
         digest_name: Optional[str] = None,
+        only_check_size: Optional[bool] = False,
         root_uri: Optional[str] = None,
         keep_index_versions: int = 0,
         diff_file: Optional[Union[Path, str]] = None,
@@ -231,6 +232,7 @@ class BandersnatchMirror(Mirror):
         self.diff_full_path = diff_full_path
         self.keep_index_versions = keep_index_versions
         self.digest_name = digest_name if digest_name else "sha256"
+        self.only_check_size = only_check_size
         self.workers = workers
         self.diff_file_list = diff_file_list or []
         if self.workers > 10:
@@ -641,7 +643,8 @@ class BandersnatchMirror(Mirror):
         for release_file in package.release_files:
             try:
                 downloaded_file = await self.download_file(
-                    release_file["url"], release_file["digests"]["sha256"]
+                    release_file["url"], release_file["digests"]["sha256"],
+                    release_file["size"]
                 )
                 if downloaded_file:
                     downloaded_files.add(str(downloaded_file.relative_to(self.homedir)))
@@ -770,21 +773,32 @@ class BandersnatchMirror(Mirror):
 
     # TODO: This can also return SwiftPath instances now...
     async def download_file(
-        self, url: str, sha256sum: str, chunk_size: int = 64 * 1024
+        self, url: str, sha256sum: str, size: int, chunk_size: int = 64 * 1024
     ) -> Optional[Path]:
         path = self._file_url_to_local_path(url)
 
         # Avoid downloading again if we have the file and it matches the hash.
         if path.exists():
-            existing_hash = self.storage_backend.get_hash(str(path))
-            if existing_hash == sha256sum:
-                return None
+            if self.only_check_size:
+                path_size = path.stat().st_size
+                if path_size == size:
+                    return None
+                else:
+                    logger.info(
+                        f"Checksum mismatch with local file {path}: expected {size} bytes "
+                        + f"got {path_size}, will re-download."
+                    )
+                    path.unlink()
             else:
-                logger.info(
-                    f"Checksum mismatch with local file {path}: expected {sha256sum} "
-                    + f"got {existing_hash}, will re-download."
-                )
-                path.unlink()
+                existing_hash = self.storage_backend.get_hash(str(path))
+                if existing_hash == sha256sum:
+                    return None
+                else:
+                    logger.info(
+                        f"Checksum mismatch with local file {path}: expected {sha256sum} "
+                        + f"got {existing_hash}, will re-download."
+                    )
+                    path.unlink()
 
         logger.info(f"Downloading: {url}")
 
@@ -876,6 +890,7 @@ async def mirror(
             json_save=config_values.json_save,
             root_uri=config_values.root_uri,
             digest_name=config_values.digest_name,
+            only_check_size=config_values.only_check_size,
             keep_index_versions=config.getint(
                 "mirror", "keep_index_versions", fallback=0
             ),

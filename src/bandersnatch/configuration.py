@@ -27,6 +27,7 @@ class SetConfigValues(NamedTuple):
     diff_file_path: str
     diff_append_epoch: bool
     digest_name: str
+    only_check_size: bool
     storage_backend_name: str
     cleanup: bool
     release_files_save: bool
@@ -154,6 +155,11 @@ def validate_config_values(config: configparser.ConfigParser) -> SetConfigValues
         )
 
     try:
+        only_check_size = config.getboolean("mirror", "only_check_size")
+    except configparser.NoOptionError:
+        only_check_size = False
+
+    try:
         cleanup = config.getboolean("mirror", "cleanup")
     except configparser.NoOptionError:
         logger.debug(
@@ -177,6 +183,7 @@ def validate_config_values(config: configparser.ConfigParser) -> SetConfigValues
         diff_file_path,
         diff_append_epoch,
         digest_name,
+        only_check_size,
         storage_backend_name,
         cleanup,
         release_files_save,
